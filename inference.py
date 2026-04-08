@@ -9,15 +9,34 @@ from server.drone_env_environment import DroneEnvironment
 from models import DroneAction
 
 # Required submission environment variables.
-API_BASE_URL = os.getenv("API_BASE_URL")
-API_KEY = os.getenv("API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+API_BASE_URL = os.environ.get("API_BASE_URL", "").strip()
+MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct").strip()
 
 # Optional local image override for workflows using from_docker_image().
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+LOCAL_IMAGE_NAME = os.environ.get("LOCAL_IMAGE_NAME")
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
-# All LLM calls must use the evaluator-provided OpenAI-compatible proxy.
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if API_BASE_URL and API_KEY else None
+
+def _resolve_api_key() -> str:
+    """Prefer the evaluator-injected proxy key, with safe fallbacks for local runs."""
+    api_key = (
+        os.environ.get("API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or HF_TOKEN
+        or ""
+    ).strip()
+    if not api_key:
+        raise RuntimeError(
+            "Missing API key. Expected API_KEY from the evaluator, "
+            "or OPENAI_API_KEY/HF_TOKEN for local testing."
+        )
+    return api_key
+
+
+def build_client() -> OpenAI:
+    if not API_BASE_URL:
+        raise RuntimeError("Missing required environment variable: API_BASE_URL")
+    return OpenAI(base_url=API_BASE_URL, api_key=_resolve_api_key())
 
 MAX_STEPS = 40
 Position = Tuple[int, int]
@@ -110,17 +129,8 @@ def simple_policy(obs):
     return f"{fallback_drone} up"
 
 
-def validate_proxy_config():
-    if not API_BASE_URL:
-        raise RuntimeError("Missing required environment variable: API_BASE_URL")
-    if not API_KEY:
-        raise RuntimeError("Missing required environment variable: API_KEY")
-
-
 def call_proxy_once(task_name: str, obs) -> None:
-    if client is None:
-        validate_proxy_config()
-
+    client = build_client()
     drone_state = ", ".join(
         f"{drone}:{tuple(position)}->{tuple(obs.goals[drone])}"
         for drone, position in sorted(obs.drones.items())
