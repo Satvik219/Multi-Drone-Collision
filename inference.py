@@ -7,12 +7,17 @@ from graders import grade_episode
 from server.drone_env_environment import DroneEnvironment
 from models import DroneAction
 
-API_BASE_URL = os.getenv("API_BASE_URL")
-MODEL_NAME = os.getenv("MODEL_NAME", "simple-policy")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+# Required submission environment variables.
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Initialized for submission compliance; policy remains local and deterministic.
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if API_KEY else None
+# Optional local image override for workflows using from_docker_image().
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+
+# All LLM calls, if enabled, must use this configured OpenAI-compatible client.
+# The baseline policy below remains deterministic and local for reproducibility.
+client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN) if HF_TOKEN else None
 
 MAX_STEPS = 40
 
