@@ -1,11 +1,9 @@
-import asyncio
 import os
-from collections import deque
-from typing import Dict, List, Sequence, Tuple
+import json
+from typing import List, Tuple
 
-from openai import OpenAI
-from graders import grade_episode
 from server.drone_env_environment import DroneEnvironment
+<<<<<<< HEAD
 from models import DroneAction
 
 # Required submission environment variables.
@@ -37,6 +35,8 @@ def build_client() -> OpenAI:
     if not API_BASE_URL:
         raise RuntimeError("Missing required environment variable: API_BASE_URL")
     return OpenAI(base_url=API_BASE_URL, api_key=_resolve_api_key())
+=======
+>>>>>>> a177dc5 (Final fix for graders + inference)
 
 MAX_STEPS = 40
 Position = Tuple[int, int]
@@ -53,14 +53,25 @@ def log_step(step: int, action: str, reward: float, done: bool):
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]):
+# ✅ FIXED END LOGGER (VERY IMPORTANT)
+def log_end(success: bool, steps: int, score: float, rewards: List[float], final_drones=None):
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+
+    fd_str = ""
+    if final_drones:
+        try:
+            fd_clean = {k: list(v) for k, v in final_drones.items()}
+            fd_str = f" final_drones={json.dumps(fd_clean)}"
+        except:
+            fd_str = ""
+
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} steps_taken={steps} score={score:.2f} rewards={rewards_str}{fd_str}",
         flush=True,
     )
 
 
+<<<<<<< HEAD
 def _next_direction(start: Position, goal: Position, blocked: set[Position], grid_size: int) -> str | None:
     if start == goal:
         return None
@@ -162,52 +173,64 @@ def call_proxy_once(task_name: str, obs) -> None:
 async def main():
     task_name = os.getenv("TASK_NAME", "medium").strip().lower() or "medium"
     env = DroneEnvironment(task_name=task_name)
+=======
+def run_episode(task: str):
+    env = DroneEnvironment(task)
+    obs = env.reset()
+>>>>>>> a177dc5 (Final fix for graders + inference)
 
     rewards = []
-    log_start(task_name, "drone_env", MODEL_NAME)
+    total_reward = 0
 
-    obs = env.reset()
-    call_proxy_once(task_name, obs)
-    path_history: Dict[str, List[Sequence[int]]] = {
-        drone: [list(position)] for drone, position in obs.drones.items()
-    }
-    obstacle_snapshots: List[Sequence[Sequence[int]]] = [list(obs.obstacles)]
+    for step in range(MAX_STEPS):
+        actions = {}
 
-    max_steps = min(MAX_STEPS, getattr(env, "max_episode_steps", MAX_STEPS))
+        for drone, pos in obs.drones.items():
+            goal = obs.goals[drone]
 
-    for step in range(1, max_steps + 1):
-        action_str = simple_policy(obs)
+            # simple greedy movement
+            if pos[0] < goal[0]:
+                action = "down"
+            elif pos[0] > goal[0]:
+                action = "up"
+            elif pos[1] < goal[1]:
+                action = "right"
+            elif pos[1] > goal[1]:
+                action = "left"
+            else:
+                action = "stay"
 
-        result = env.step(DroneAction(command=action_str))
-        obs = result
+            actions[drone] = action
 
-        reward = result.reward
-        done = result.done
+        obs, reward, done, _ = env.step(actions)
 
         rewards.append(reward)
-        log_step(step, action_str, reward, done)
-        for drone, position in obs.drones.items():
-            path_history.setdefault(drone, []).append(list(position))
-        obstacle_snapshots.append(list(obs.obstacles))
+        total_reward += reward
+
+        log_step(step, str(actions), reward, done)
 
         if done:
             break
 
-    steps_taken = len(rewards)
-    grade = grade_episode(
-        task_name=task_name,
-        final_drones=obs.drones,
-        final_goals=obs.goals,
-        rewards=rewards,
-        steps_taken=steps_taken,
-        path_history=path_history,
-        obstacle_snapshots=obstacle_snapshots,
+    success = all(
+        tuple(obs.drones[d]) == tuple(obs.goals[d])
+        for d in obs.drones
     )
-    score = float(grade["score"])
-    success = bool(grade["success"])
 
-    log_end(success, step, score, rewards)
+    score = total_reward / (step + 1)
+
+    # ✅ CRITICAL FIX: send final_drones
+    log_end(success, step + 1, score, rewards, final_drones=obs.drones)
+
+    return {
+        "success": success,
+        "score": score,
+    }
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    MODEL_NAME = os.getenv("MODEL_NAME", "baseline")
+
+    for task in ["easy", "medium", "hard"]:
+        log_start(task, "drone_env", MODEL_NAME)
+        run_episode(task)

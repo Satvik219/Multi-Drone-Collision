@@ -37,7 +37,7 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
-    from ..models import DroneAction, DroneObservation
+    from models import DroneAction, DroneObservation
     from .drone_env_environment import DroneEnvironment
 except ModuleNotFoundError:
     from models import DroneAction, DroneObservation
