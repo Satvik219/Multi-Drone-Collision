@@ -62,7 +62,11 @@ def run_episode(task: str):
 
             actions[drone] = action
 
-        obs, reward, done, _ = env.step(actions)
+        step_result = env.step(actions)
+
+        obs = step_result[0]
+        reward = step_result[1]
+        done = step_result[2]
 
         rewards.append(reward)
         total_reward += reward
