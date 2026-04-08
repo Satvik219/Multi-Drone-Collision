@@ -44,6 +44,7 @@ server = "drone_env.server.app:main"
 include-package-data = true
 packages = ["drone_env", "drone_env.server"]
 package-dir = { "drone_env" = ".", "drone_env.server" = "server" }
+py-modules = ["graders"]
 
 [tool.setuptools.package-data]
 drone_env = ["openenv.yaml", "README.md"]
