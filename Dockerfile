@@ -15,9 +15,8 @@ RUN if ! command -v uv >/dev/null 2>&1; then \
         true; \
     fi
 
-RUN --mount=type=cache,target=/home/user/.cache/uv \
-    if [ -f uv.lock ]; then \
-        uv sync --frozen --no-editable; \
+RUN if [ -f uv.lock ]; then \
+        uv sync --no-editable; \
     else \
         uv sync --no-editable; \
     fi
