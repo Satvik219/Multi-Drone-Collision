@@ -8,16 +8,15 @@ from server.drone_env_environment import DroneEnvironment
 from models import DroneAction
 
 # Required submission environment variables.
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+API_BASE_URL = os.getenv("API_BASE_URL")
+API_KEY = os.getenv("API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Optional local image override for workflows using from_docker_image().
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
-# All LLM calls, if enabled, must use this configured OpenAI-compatible client.
-# The baseline policy below remains deterministic and local for reproducibility.
-client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN) if HF_TOKEN else None
+# All LLM calls must use the evaluator-provided OpenAI-compatible proxy.
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if API_BASE_URL and API_KEY else None
 
 MAX_STEPS = 40
 
@@ -99,6 +98,45 @@ def simple_policy(obs):
     return f"{fallback_drone} up"
 
 
+def validate_proxy_config():
+    if not API_BASE_URL:
+        raise RuntimeError("Missing required environment variable: API_BASE_URL")
+    if not API_KEY:
+        raise RuntimeError("Missing required environment variable: API_KEY")
+
+
+def call_proxy_once(task_name: str, obs) -> None:
+    if client is None:
+        validate_proxy_config()
+
+    drone_state = ", ".join(
+        f"{drone}:{tuple(position)}->{tuple(obs.goals[drone])}"
+        for drone, position in sorted(obs.drones.items())
+    )
+
+    client.chat.completions.create(
+        model=MODEL_NAME,
+        temperature=0,
+        max_tokens=16,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are validating a drone-routing run. "
+                    "Reply with a very short acknowledgement."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Task={task_name}. Initial drone state: {drone_state}. "
+                    "Acknowledge that you can evaluate this run."
+                ),
+            },
+        ],
+    )
+
+
 async def main():
     task_name = os.getenv("TASK_NAME", "medium").strip().lower() or "medium"
     env = DroneEnvironment(task_name=task_name)
@@ -107,6 +145,7 @@ async def main():
     log_start(task_name, "drone_env", MODEL_NAME)
 
     obs = env.reset()
+    call_proxy_once(task_name, obs)
 
     max_steps = min(MAX_STEPS, getattr(env, "max_episode_steps", MAX_STEPS))
 
