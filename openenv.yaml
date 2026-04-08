@@ -1,0 +1,46 @@
+spec_version: 1
+name: drone_env
+description: Multi-drone delivery coordination environment for real-world fleet routing tasks
+version: 0.1.0
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+action: DroneAction
+observation: DroneObservation
+tags:
+  - openenv
+  - logistics
+  - drones
+  - multi-agent
+
+tasks:
+  - id: easy
+    difficulty: easy
+    description: Move a single drone to its delivery goal in an obstacle-free grid
+    max_steps: 20
+    grader:
+      type: python
+      entrypoint: graders:grade_easy_episode
+      score_range: [0.0, 1.0]
+      success_condition: drone1 reaches its goal before timeout
+
+  - id: medium
+    difficulty: medium
+    description: Coordinate two drones to deliver packages without collisions
+    max_steps: 30
+    grader:
+      type: python
+      entrypoint: graders:grade_medium_episode
+      score_range: [0.0, 1.0]
+      success_condition: both drones reach goals without collision before timeout
+
+  - id: hard
+    difficulty: hard
+    description: Coordinate two drones through a denser obstacle field while staying efficient
+    max_steps: 40
+    grader:
+      type: python
+      entrypoint: graders:grade_hard_episode
+      score_range: [0.0, 1.0]
+      success_condition: both drones reach goals through constrained routes before timeout
