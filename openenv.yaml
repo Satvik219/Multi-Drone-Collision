@@ -14,11 +14,26 @@ tags:
   - drones
   - multi-agent
 
+graders:
+  easy:
+    type: python
+    entrypoint: graders:grade_easy_episode
+  medium:
+    type: python
+    entrypoint: graders:grade_medium_episode
+  hard:
+    type: python
+    entrypoint: graders:grade_hard_episode
+
 tasks:
   - id: easy
     difficulty: easy
     description: Move a single drone to its delivery goal with strong delivery success, path optimality, and time efficiency
     max_steps: 20
+    grader_entrypoint: graders:grade_easy_episode
+    rubric:
+      type: python
+      entrypoint: graders:grade_easy_episode
     grader:
       type: python
       entrypoint: graders:grade_easy_episode
@@ -29,6 +44,10 @@ tasks:
     difficulty: medium
     description: Coordinate two drones to complete deliveries without collisions while maintaining load balancing and path quality
     max_steps: 30
+    grader_entrypoint: graders:grade_medium_episode
+    rubric:
+      type: python
+      entrypoint: graders:grade_medium_episode
     grader:
       type: python
       entrypoint: graders:grade_medium_episode
@@ -39,6 +58,10 @@ tasks:
     difficulty: hard
     description: Coordinate two drones through dense and dynamic obstacles while remaining safe, robust, and efficient
     max_steps: 40
+    grader_entrypoint: graders:grade_hard_episode
+    rubric:
+      type: python
+      entrypoint: graders:grade_hard_episode
     grader:
       type: python
       entrypoint: graders:grade_hard_episode
