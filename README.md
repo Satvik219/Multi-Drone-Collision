@@ -46,13 +46,13 @@ The environment supports three task levels. Task selection is controlled by `TAS
 - Two drones
 - Light obstacle layout
 - Moderate horizon
-- Goal: complete both deliveries without collision
+- Goal: complete both deliveries without collision while balancing fleet workload
 
 3. `hard`
 - Two drones
-- Denser obstacle layout
+- Denser obstacle layout with a moving blockage
 - Longer horizon with tighter routing
-- Goal: finish both deliveries efficiently under more constrained paths
+- Goal: finish both deliveries efficiently under more constrained and dynamically changing paths
 
 ## Agent graders
 
@@ -66,6 +66,13 @@ Each grader returns:
 
 - `success`: whether the task was completed
 - `score`: normalized score in `[0.0, 1.0]`
+- `delivery_success`
+- `time_efficiency`
+- `collision_avoidance`
+- `path_optimality`
+- `load_balancing`
+- `dynamic_obstacles`
+- `robust_failure_safe`
 - `completion_ratio`
 - `progress_ratio`
 - `efficiency_ratio`
@@ -73,8 +80,12 @@ Each grader returns:
 The final score combines:
 
 - task completion
-- partial progress toward goals
-- step efficiency
+- time efficiency
+- collision avoidance
+- route optimality
+- fleet load balancing
+- dynamic obstacle adaptation
+- robust failure-safe execution
 
 This makes the evaluation meaningful even when the agent does not fully solve the task.
 

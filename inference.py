@@ -1,6 +1,7 @@
 import asyncio
 import os
-from typing import List
+from collections import deque
+from typing import Dict, List, Sequence, Tuple
 
 from openai import OpenAI
 from graders import grade_episode
@@ -19,6 +20,7 @@ LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if API_BASE_URL and API_KEY else None
 
 MAX_STEPS = 40
+Position = Tuple[int, int]
 
 
 def log_start(task: str, env: str, model: str):
@@ -40,58 +42,68 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
     )
 
 
-def simple_policy(obs):
-    directions = {
-        "up": (-1, 0),
-        "down": (1, 0),
-        "left": (0, -1),
-        "right": (0, 1),
-    }
+def _next_direction(start: Position, goal: Position, blocked: set[Position], grid_size: int) -> str | None:
+    if start == goal:
+        return None
 
+    directions = [
+        ("up", (-1, 0)),
+        ("down", (1, 0)),
+        ("left", (0, -1)),
+        ("right", (0, 1)),
+    ]
+    queue = deque([(start, [])])
+    seen = {start}
+
+    while queue:
+        current, path = queue.popleft()
+        for name, (dx, dy) in directions:
+            nxt = (current[0] + dx, current[1] + dy)
+            if not (0 <= nxt[0] < grid_size and 0 <= nxt[1] < grid_size):
+                continue
+            if nxt in blocked or nxt in seen:
+                continue
+            next_path = path + [name]
+            if nxt == goal:
+                return next_path[0]
+            seen.add(nxt)
+            queue.append((nxt, next_path))
+
+    return None
+
+
+def simple_policy(obs):
     drone_order = sorted(obs.drones.keys())
+    grid_size = max(
+        [max(max(pos) for pos in obs.drones.values()), max(max(goal) for goal in obs.goals.values())],
+        default=0,
+    ) + 1
+    current_obstacles = {tuple(obstacle) for obstacle in getattr(obs, "obstacles", [])}
 
     for drone in drone_order:
-        pos = obs.drones[drone]
-        goal = obs.goals[drone]
+        pos = tuple(obs.drones[drone])
+        goal = tuple(obs.goals[drone])
 
-        if tuple(pos) == goal:
+        if pos == goal:
             continue
 
-        x, y = pos
-        gx, gy = goal
-
-        moves = []
-        if x < gx:
-            moves.append("down")
-        elif x > gx:
-            moves.append("up")
-
-        if y < gy:
-            moves.append("right")
-        elif y > gy:
-            moves.append("left")
-
-        occupied_other = [p for d, p in obs.drones.items() if d != drone]
-
-        for move in moves:
-            dx, dy = directions[move]
-            new_pos = [x + dx, y + dy]
-
-            if new_pos in occupied_other:
-                continue
-
-            if hasattr(obs, "obstacles") and tuple(new_pos) in obs.obstacles:
-                continue
-
+        occupied_other = {
+            tuple(position)
+            for other_drone, position in obs.drones.items()
+            if other_drone != drone
+        }
+        move = _next_direction(pos, goal, current_obstacles | occupied_other, grid_size)
+        if move:
             return f"{drone} {move}"
 
     # deterministic fallback for blocked states
     fallback_drone = drone_order[0]
     fx, fy = obs.drones[fallback_drone]
-    for move in ("right", "down", "left", "up"):
-        dx, dy = directions[move]
-        candidate = [fx + dx, fy + dy]
-        if hasattr(obs, "obstacles") and tuple(candidate) in obs.obstacles:
+    for move, (dx, dy) in (("right", (0, 1)), ("down", (1, 0)), ("left", (0, -1)), ("up", (-1, 0))):
+        candidate = (fx + dx, fy + dy)
+        if candidate in current_obstacles:
+            continue
+        if candidate[0] < 0 or candidate[1] < 0 or candidate[0] >= grid_size or candidate[1] >= grid_size:
             continue
         return f"{fallback_drone} {move}"
 
@@ -146,6 +158,10 @@ async def main():
 
     obs = env.reset()
     call_proxy_once(task_name, obs)
+    path_history: Dict[str, List[Sequence[int]]] = {
+        drone: [list(position)] for drone, position in obs.drones.items()
+    }
+    obstacle_snapshots: List[Sequence[Sequence[int]]] = [list(obs.obstacles)]
 
     max_steps = min(MAX_STEPS, getattr(env, "max_episode_steps", MAX_STEPS))
 
@@ -160,6 +176,9 @@ async def main():
 
         rewards.append(reward)
         log_step(step, action_str, reward, done)
+        for drone, position in obs.drones.items():
+            path_history.setdefault(drone, []).append(list(position))
+        obstacle_snapshots.append(list(obs.obstacles))
 
         if done:
             break
@@ -171,6 +190,8 @@ async def main():
         final_goals=obs.goals,
         rewards=rewards,
         steps_taken=steps_taken,
+        path_history=path_history,
+        obstacle_snapshots=obstacle_snapshots,
     )
     score = float(grade["score"])
     success = bool(grade["success"])

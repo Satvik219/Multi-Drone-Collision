@@ -35,6 +35,9 @@ class DroneEnvironment(Environment):
         self.drones = {}
         self.goals = {}
         self.obstacles = []
+        self.static_obstacles = []
+        self.dynamic_obstacle_cycle = []
+        self.dynamic_obstacle_index = 0
 
     def set_task(self, task_name: str) -> None:
         self.task_name = task_name
@@ -51,7 +54,8 @@ class DroneEnvironment(Environment):
             self.goals = {
                 "drone1": (4, 4),
             }
-            self.obstacles = []
+            self.static_obstacles = []
+            self.dynamic_obstacle_cycle = []
         elif self.task_name == "medium":
             self.grid_size = 6
             self.max_episode_steps = 30
@@ -63,7 +67,8 @@ class DroneEnvironment(Environment):
                 "drone1": (5, 5),
                 "drone2": (0, 5),
             }
-            self.obstacles = [(2, 2), (3, 3)]
+            self.static_obstacles = [(2, 2), (3, 3)]
+            self.dynamic_obstacle_cycle = []
         elif self.task_name == "hard":
             self.grid_size = 7
             self.max_episode_steps = 40
@@ -75,7 +80,8 @@ class DroneEnvironment(Environment):
                 "drone1": (6, 6),
                 "drone2": (0, 6),
             }
-            self.obstacles = [(2, 2), (2, 3), (3, 3), (4, 4)]
+            self.static_obstacles = [(2, 2), (3, 3), (4, 4)]
+            self.dynamic_obstacle_cycle = [(1, 3), (2, 4), (3, 4), (4, 3), (3, 2), (2, 1)]
         else:
             # medium is the default task
             self.task_name = "medium"
@@ -89,7 +95,11 @@ class DroneEnvironment(Environment):
                 "drone1": (5, 5),
                 "drone2": (0, 5),
             }
-            self.obstacles = [(2, 2), (3, 3)]
+            self.static_obstacles = [(2, 2), (3, 3)]
+            self.dynamic_obstacle_cycle = []
+
+        self.dynamic_obstacle_index = 0
+        self._refresh_obstacles()
 
         return DroneObservation(
             drones=self.drones,
@@ -101,6 +111,20 @@ class DroneEnvironment(Environment):
             done=False,
             reward=0.0,
         )
+
+    def _refresh_obstacles(self) -> None:
+        self.obstacles = list(self.static_obstacles)
+        if not self.dynamic_obstacle_cycle:
+            return
+
+        protected_positions = {tuple(pos) for pos in self.drones.values()}
+        protected_positions.update(self.goals.values())
+        cycle_length = len(self.dynamic_obstacle_cycle)
+        for offset in range(cycle_length):
+            candidate = self.dynamic_obstacle_cycle[(self.dynamic_obstacle_index + offset) % cycle_length]
+            if candidate not in protected_positions:
+                self.obstacles.append(candidate)
+                return
 
     def step(self, action: DroneAction) -> DroneObservation:
         self._state.step_count += 1
@@ -208,6 +232,10 @@ class DroneEnvironment(Environment):
         if not done and self._state.step_count >= self.max_episode_steps:
             done = True
             reward -= 1.0
+
+        if self.dynamic_obstacle_cycle:
+            self.dynamic_obstacle_index = (self.dynamic_obstacle_index + 1) % len(self.dynamic_obstacle_cycle)
+            self._refresh_obstacles()
 
         return DroneObservation(
             drones=self.drones,

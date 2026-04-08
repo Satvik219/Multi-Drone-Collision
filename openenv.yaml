@@ -17,30 +17,30 @@ tags:
 tasks:
   - id: easy
     difficulty: easy
-    description: Move a single drone to its delivery goal in an obstacle-free grid
+    description: Move a single drone to its delivery goal with strong delivery success, path optimality, and time efficiency
     max_steps: 20
     grader:
       type: python
       entrypoint: graders:grade_easy_episode
       score_range: [0.0, 1.0]
-      success_condition: drone1 reaches its goal before timeout
+      success_condition: drone1 reaches its goal before timeout while maintaining delivery success and efficient routing
 
   - id: medium
     difficulty: medium
-    description: Coordinate two drones to deliver packages without collisions
+    description: Coordinate two drones to complete deliveries without collisions while maintaining load balancing and path quality
     max_steps: 30
     grader:
       type: python
       entrypoint: graders:grade_medium_episode
       score_range: [0.0, 1.0]
-      success_condition: both drones reach goals without collision before timeout
+      success_condition: both drones reach goals without collision before timeout with balanced coordination and efficient routes
 
   - id: hard
     difficulty: hard
-    description: Coordinate two drones through a denser obstacle field while staying efficient
+    description: Coordinate two drones through dense and dynamic obstacles while remaining safe, robust, and efficient
     max_steps: 40
     grader:
       type: python
       entrypoint: graders:grade_hard_episode
       score_range: [0.0, 1.0]
-      success_condition: both drones reach goals through constrained routes before timeout
+      success_condition: both drones reach goals through constrained dynamic routes before timeout with collision avoidance and failure-safe behavior
