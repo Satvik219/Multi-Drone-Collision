@@ -216,7 +216,7 @@ def grade_episode(
     }
 
 
-def grade_easy_episode(
+def _grade_easy_episode_impl(
     final_drones: Dict[str, Sequence[int]],
     final_goals: Dict[str, Sequence[int]],
     rewards: List[float],
@@ -225,7 +225,7 @@ def grade_easy_episode(
     return grade_episode("easy", final_drones, final_goals, rewards, steps_taken)
 
 
-def grade_medium_episode(
+def _grade_medium_episode_impl(
     final_drones: Dict[str, Sequence[int]],
     final_goals: Dict[str, Sequence[int]],
     rewards: List[float],
@@ -234,10 +234,46 @@ def grade_medium_episode(
     return grade_episode("medium", final_drones, final_goals, rewards, steps_taken)
 
 
-def grade_hard_episode(
+def _grade_hard_episode_impl(
     final_drones: Dict[str, Sequence[int]],
     final_goals: Dict[str, Sequence[int]],
     rewards: List[float],
     steps_taken: int,
 ) -> Dict[str, float | bool | str]:
     return grade_episode("hard", final_drones, final_goals, rewards, steps_taken)
+
+
+def grade_easy_episode(
+    prediction: Dict[str, object],
+    ground_truth: Dict[str, object],
+) -> Dict[str, float | bool | str]:
+    return _grade_easy_episode_impl(
+        final_drones=prediction["final_drones"],
+        final_goals=ground_truth["final_goals"],
+        rewards=prediction["rewards"],
+        steps_taken=prediction["steps_taken"],
+    )
+
+
+def grade_medium_episode(
+    prediction: Dict[str, object],
+    ground_truth: Dict[str, object],
+) -> Dict[str, float | bool | str]:
+    return _grade_medium_episode_impl(
+        final_drones=prediction["final_drones"],
+        final_goals=ground_truth["final_goals"],
+        rewards=prediction["rewards"],
+        steps_taken=prediction["steps_taken"],
+    )
+
+
+def grade_hard_episode(
+    prediction: Dict[str, object],
+    ground_truth: Dict[str, object],
+) -> Dict[str, float | bool | str]:
+    return _grade_hard_episode_impl(
+        final_drones=prediction["final_drones"],
+        final_goals=ground_truth["final_goals"],
+        rewards=prediction["rewards"],
+        steps_taken=prediction["steps_taken"],
+    )
