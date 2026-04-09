@@ -14,6 +14,28 @@ tags:
   - drones
   - multi-agent
 
+graders:
+  easy:
+    type: python
+    entrypoint: graders:grade_easy_episode
+    ground_truth:
+      final_goals:
+        drone1: [4, 4]
+  medium:
+    type: python
+    entrypoint: graders:grade_medium_episode
+    ground_truth:
+      final_goals:
+        drone1: [5, 5]
+        drone2: [0, 5]
+  hard:
+    type: python
+    entrypoint: graders:grade_hard_episode
+    ground_truth:
+      final_goals:
+        drone1: [6, 6]
+        drone2: [0, 6]
+
 tasks:
   - id: easy
     difficulty: easy
