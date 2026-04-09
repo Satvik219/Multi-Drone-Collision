@@ -42,7 +42,9 @@ class DroneEnvironment(Environment):
     def set_task(self, task_name: str) -> None:
         self.task_name = task_name
 
-    def reset(self) -> DroneObservation:
+    def reset(self, task_name: str | None = None) -> DroneObservation:
+        if task_name is not None:
+            self.task_name = task_name.strip().lower() or self.task_name
         self._state = State(episode_id=str(uuid4()), step_count=0)
 
         if self.task_name == "easy":
