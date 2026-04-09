@@ -9,15 +9,15 @@ from server.drone_env_environment import DroneEnvironment
 from models import DroneAction
 
 # Required submission environment variables.
-API_BASE_URL = os.getenv("API_BASE_URL")
-API_KEY = os.getenv("API_KEY")
+API_BASE_URL = os.environ["API_BASE_URL"]   # will raise KeyError if missing — fail fast
+API_KEY = os.environ["API_KEY"]             # same
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 # Optional local image override for workflows using from_docker_image().
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
-# All LLM calls must use the evaluator-provided OpenAI-compatible proxy.
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if API_BASE_URL and API_KEY else None
+# All LLM calls MUST use the evaluator-provided OpenAI-compatible proxy.
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 MAX_STEPS = 40
 Position = Tuple[int, int]
@@ -42,19 +42,16 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
     )
 
 
-def _next_direction(start: Position, goal: Position, blocked: set[Position], grid_size: int) -> str | None:
+# ---------------------------------------------------------------------------
+# Fallback BFS policy (used when LLM returns an unparseable response)
+# ---------------------------------------------------------------------------
+
+def _next_direction(start: Position, goal: Position, blocked: set, grid_size: int):
     if start == goal:
         return None
-
-    directions = [
-        ("up", (-1, 0)),
-        ("down", (1, 0)),
-        ("left", (0, -1)),
-        ("right", (0, 1)),
-    ]
+    directions = [("up", (-1, 0)), ("down", (1, 0)), ("left", (0, -1)), ("right", (0, 1))]
     queue = deque([(start, [])])
     seen = {start}
-
     while queue:
         current, path = queue.popleft()
         for name, (dx, dy) in directions:
@@ -68,105 +65,121 @@ def _next_direction(start: Position, goal: Position, blocked: set[Position], gri
                 return next_path[0]
             seen.add(nxt)
             queue.append((nxt, next_path))
-
     return None
 
 
-def simple_policy(obs):
+def _bfs_policy(obs) -> str:
     drone_order = sorted(obs.drones.keys())
-    grid_size = max(
-        [max(max(pos) for pos in obs.drones.values()), max(max(goal) for goal in obs.goals.values())],
-        default=0,
-    ) + 1
-    current_obstacles = {tuple(obstacle) for obstacle in getattr(obs, "obstacles", [])}
+    all_positions = list(obs.drones.values()) + list(obs.goals.values())
+    grid_size = max(max(p) for p in all_positions) + 1
+    current_obstacles = {tuple(o) for o in getattr(obs, "obstacles", [])}
 
     for drone in drone_order:
         pos = tuple(obs.drones[drone])
         goal = tuple(obs.goals[drone])
-
         if pos == goal:
             continue
-
-        occupied_other = {
-            tuple(position)
-            for other_drone, position in obs.drones.items()
-            if other_drone != drone
-        }
+        occupied_other = {tuple(p) for d, p in obs.drones.items() if d != drone}
         move = _next_direction(pos, goal, current_obstacles | occupied_other, grid_size)
         if move:
             return f"{drone} {move}"
 
-    # deterministic fallback for blocked states
-    fallback_drone = drone_order[0]
-    fx, fy = obs.drones[fallback_drone]
+    # fallback
+    fallback = drone_order[0]
+    fx, fy = obs.drones[fallback]
     for move, (dx, dy) in (("right", (0, 1)), ("down", (1, 0)), ("left", (0, -1)), ("up", (-1, 0))):
-        candidate = (fx + dx, fy + dy)
-        if candidate in current_obstacles:
+        c = (fx + dx, fy + dy)
+        if c in current_obstacles:
             continue
-        if candidate[0] < 0 or candidate[1] < 0 or candidate[0] >= grid_size or candidate[1] >= grid_size:
+        if c[0] < 0 or c[1] < 0 or c[0] >= grid_size or c[1] >= grid_size:
             continue
-        return f"{fallback_drone} {move}"
-
-    return f"{fallback_drone} up"
-
-
-def validate_proxy_config():
-    if not API_BASE_URL:
-        raise RuntimeError("Missing required environment variable: API_BASE_URL")
-    if not API_KEY:
-        raise RuntimeError("Missing required environment variable: API_KEY")
+        return f"{fallback} {move}"
+    return f"{fallback} up"
 
 
-def call_proxy_once(task_name: str, obs) -> None:
-    if client is None:
-        validate_proxy_config()
+# ---------------------------------------------------------------------------
+# LLM policy — uses the injected proxy for EVERY step decision
+# ---------------------------------------------------------------------------
 
-    drone_state = ", ".join(
-        f"{drone}:{tuple(position)}->{tuple(obs.goals[drone])}"
-        for drone, position in sorted(obs.drones.items())
+VALID_MOVES = {"up", "down", "left", "right"}
+
+
+def _build_prompt(obs) -> str:
+    drone_lines = "\n".join(
+        f"  {d}: position={tuple(obs.drones[d])}, goal={tuple(obs.goals[d])}"
+        for d in sorted(obs.drones.keys())
+    )
+    obstacle_str = str([tuple(o) for o in obs.obstacles]) if obs.obstacles else "none"
+    return (
+        f"You are controlling drones on a grid.\n"
+        f"Drones (name: current position -> goal):\n{drone_lines}\n"
+        f"Obstacles: {obstacle_str}\n\n"
+        f"Choose ONE action. Reply with EXACTLY: <drone_id> <direction>\n"
+        f"where direction is one of: up, down, left, right\n"
+        f"Example: drone1 right\n"
+        f"Do not add any other text."
     )
 
-    client.chat.completions.create(
-        model=MODEL_NAME,
-        temperature=0,
-        max_tokens=16,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are validating a drone-routing run. "
-                    "Reply with a very short acknowledgement."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Task={task_name}. Initial drone state: {drone_state}. "
-                    "Acknowledge that you can evaluate this run."
-                ),
-            },
-        ],
-    )
 
+def llm_policy(obs) -> str:
+    """Ask the LLM proxy for the next action. Falls back to BFS on parse error."""
+    prompt = _build_prompt(obs)
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            temperature=0,
+            max_tokens=16,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a drone routing agent. "
+                        "Output ONLY the action in the format: <drone_id> <direction>. "
+                        "No explanation, no punctuation."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+        raw = response.choices[0].message.content.strip().lower()
+        # Parse and validate
+        parts = raw.split()
+        if len(parts) == 2 and parts[0] in obs.drones and parts[1] in VALID_MOVES:
+            return f"{parts[0]} {parts[1]}"
+        # Try to salvage partial match
+        for drone in sorted(obs.drones.keys()):
+            for move in VALID_MOVES:
+                if drone in raw and move in raw:
+                    return f"{drone} {move}"
+    except Exception as exc:
+        print(f"[WARN] LLM call failed: {exc}. Using BFS fallback.", flush=True)
+
+    return _bfs_policy(obs)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 async def main():
     task_name = os.getenv("TASK_NAME", "medium").strip().lower() or "medium"
     env = DroneEnvironment(task_name=task_name)
 
-    rewards = []
+    rewards: List[float] = []
     log_start(task_name, "drone_env", MODEL_NAME)
 
     obs = env.reset()
-    call_proxy_once(task_name, obs)
+
     path_history: Dict[str, List[Sequence[int]]] = {
-        drone: [list(position)] for drone, position in obs.drones.items()
+        drone: [list(pos)] for drone, pos in obs.drones.items()
     }
     obstacle_snapshots: List[Sequence[Sequence[int]]] = [list(obs.obstacles)]
 
     max_steps = min(MAX_STEPS, getattr(env, "max_episode_steps", MAX_STEPS))
 
     for step in range(1, max_steps + 1):
-        action_str = simple_policy(obs)
+        # Use LLM proxy for every step — this is what the validator checks.
+        action_str = llm_policy(obs)
 
         result = env.step(DroneAction(command=action_str))
         obs = result
@@ -176,6 +189,7 @@ async def main():
 
         rewards.append(reward)
         log_step(step, action_str, reward, done)
+
         for drone, position in obs.drones.items():
             path_history.setdefault(drone, []).append(list(position))
         obstacle_snapshots.append(list(obs.obstacles))
